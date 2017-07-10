@@ -1,0 +1,3 @@
+[submodule "win-cpp-deps.cmake"]
+	path = win-cpp-deps.cmake
+	url = https://wtrsltnk@bitbucket.org/wincppdeps/win-cpp-deps.cmake.git
