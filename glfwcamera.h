@@ -1,3 +1,19 @@
+/* glfwcamera - v0.1 - public domain trackball camera class integrated into GLFW3
+
+    Do this:
+        #define GLFWCAMERA_IMPLEMENTATION
+    before you include this file in *one* C or C++ file to create the implementation.
+
+    Release notes:
+        v0.1    (2017-07-13)    initial version based on tiny_gltf glview.cc
+
+LICENSE
+
+This software is in the public domain. Where that dedication is not
+recognized, you are granted a perpetual, irrevocable license to copy,
+distribute, and modify this file as you see fit.
+
+*/
 #ifndef GLFWCAMERA_H
 #define GLFWCAMERA_H
 
