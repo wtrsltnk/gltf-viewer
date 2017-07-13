@@ -10,7 +10,6 @@
 
 #include <GL/glextl.h>
 #include <GL/glu.h>
-
 #include <GLFW/glfw3.h>
 
 #include "trackball.h"
@@ -19,17 +18,7 @@
 
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
-#define CAM_Z (3.0f)
-int width = 768;
-int height = 768;
-
-double prevMouseX, prevMouseY;
-bool mouseLeftPressed;
-bool mouseMiddlePressed;
-bool mouseRightPressed;
-float curr_quat[4];
-float prev_quat[4];
-float eye[3], lookat[3], up[3];
+#define CAM_Z (2.0f)
 
 void CheckErrors(const char* desc)
 {
@@ -48,213 +37,118 @@ static std::string GetFilePathExtension(const std::string &FileName)
     return "";
 }
 
-bool LoadShader(GLenum shaderType, GLuint &shader, const char *shaderSourceFilename)
+class GLProgram
 {
-    GLint val = 0;
+    std::map<GLenum, GLuint> _shaders;
+    GLuint _prog;
+public:
+    GLProgram() : _prog(0) { }
+    virtual ~GLProgram() { }
 
-    // free old shader/program
-    if (shader != 0)
+    GLuint ProgId() const { return _prog; }
+
+    bool LoadShader(GLenum shaderType, const char *shaderSourceFilename)
     {
-        glDeleteShader(shader);
-    }
-
-    FILE *fp = fopen(shaderSourceFilename, "rb");
-    if (!fp)
-    {
-        std::cerr << "failed to load shader: " << shaderSourceFilename << std::endl;
-        return false;
-    }
-
-    fseek(fp, 0, SEEK_END);
-    size_t len = ftell(fp);
-    rewind(fp);
-    std::vector<GLchar> srcbuf;
-    srcbuf.resize(len + 1);
-    len = fread(&srcbuf.at(0), 1, len, fp);
-    srcbuf[len] = 0;
-    fclose(fp);
-
-    const GLchar *srcs[1];
-    srcs[0] = &srcbuf.at(0);
-
-    shader = glCreateShader(shaderType);
-    glShaderSource(shader, 1, srcs, NULL);
-    glCompileShader(shader);
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &val);
-    if (val != GL_TRUE)
-    {
-        char log[4096];
-        GLsizei msglen;
-        glGetShaderInfoLog(shader, 4096, &msglen, log);
-        std::cerr << log << std::endl;
-
-        std::cerr << "ERR: Failed to load or compile shader [ " << shaderSourceFilename << " ]" << std::endl;
-
-        return false;
-    }
-
-    std::cout << "Load shader [ " << shaderSourceFilename << " ] OK" << std::endl;
-
-    return true;
-}
-
-bool LinkShader(GLuint &prog, GLuint &vertShader, GLuint &fragShader) {
-    GLint val = 0;
-
-    if (prog != 0) glDeleteProgram(prog);
-
-    prog = glCreateProgram();
-
-    glAttachShader(prog, vertShader);
-    glAttachShader(prog, fragShader);
-    glLinkProgram(prog);
-
-    glGetProgramiv(prog, GL_LINK_STATUS, &val);
-    assert(val == GL_TRUE && "failed to link shader");
-
-    std::cout << "Link shader OK" << std::endl;
-
-    return true;
-}
-
-static GLuint SetupShader()
-{
-    GLuint vertId = 0, fragId = 0, progId = 0;
-    if (false == LoadShader(GL_VERTEX_SHADER, vertId, "shader.vert")) return 0;
-    CheckErrors("load vert shader");
-
-    if (false == LoadShader(GL_FRAGMENT_SHADER, fragId, "shader.frag")) return 0;
-    CheckErrors("load frag shader");
-
-    if (false == LinkShader(progId, vertId, fragId)) return 0;
-    CheckErrors("link");
-
-    // At least `in_vertex` should be used in the shader.
-    GLint vtxLoc = glGetAttribLocation(progId, "in_vertex");
-    if (vtxLoc < 0)
-    {
-        std::cerr << "vertex loc not found." << std::endl;
-        return 0;
-    }
-
-    return progId;
-}
-
-void CleanupShader(GLuint progId)
-{
-    glDeleteProgram(progId);
-    CheckErrors("CleanupShader");
-}
-
-void reshapeFunc(GLFWwindow *window, int w, int h)
-{
-    (void)window;
-    int fb_w, fb_h;
-    glfwGetFramebufferSize(window, &fb_w, &fb_h);
-    glViewport(0, 0, fb_w, fb_h);
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    gluPerspective(45.0, (float)w / (float)h, 0.1f, 1000.0f);
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-
-    width = w;
-    height = h;
-}
-
-void keyboardFunc(GLFWwindow *window, int key, int scancode, int action, int mods)
-{
-    (void)scancode;
-    (void)mods;
-    if ((action == GLFW_PRESS || action == GLFW_REPEAT) && (key == GLFW_KEY_Q || key == GLFW_KEY_ESCAPE))
-    {
-        glfwSetWindowShouldClose(window, GL_TRUE);
-    }
-}
-
-void clickFunc(GLFWwindow *window, int button, int action, int mods)
-{
-    double x, y;
-    glfwGetCursorPos(window, &x, &y);
-
-    bool shiftPressed = (mods & GLFW_MOD_SHIFT);
-    bool ctrlPressed = (mods & GLFW_MOD_CONTROL);
-
-    if ((button == GLFW_MOUSE_BUTTON_LEFT) && (!shiftPressed) && (!ctrlPressed))
-    {
-        mouseLeftPressed = true;
-        mouseMiddlePressed = false;
-        mouseRightPressed = false;
-        if (action == GLFW_PRESS)
+        if (_shaders.find(shaderType) != _shaders.end())
         {
-            int id = -1;
-            if (id < 0) trackball(prev_quat, 0.0, 0.0, 0.0, 0.0);
+            glDeleteShader(_shaders[shaderType]);
+            _shaders.erase(shaderType);
         }
-        else if (action == GLFW_RELEASE)
-        {
-            mouseLeftPressed = false;
-        }
-    }
-    if ((button == GLFW_MOUSE_BUTTON_RIGHT) || ((button == GLFW_MOUSE_BUTTON_LEFT) && ctrlPressed))
-    {
-        if (action == GLFW_PRESS)
-        {
-            mouseRightPressed = true;
-            mouseLeftPressed = false;
-            mouseMiddlePressed = false;
-        }
-        else if (action == GLFW_RELEASE)
-        {
-            mouseRightPressed = false;
-        }
-    }
-    if ((button == GLFW_MOUSE_BUTTON_MIDDLE) || ((button == GLFW_MOUSE_BUTTON_LEFT) && shiftPressed))
-    {
-        if (action == GLFW_PRESS)
-        {
-            mouseMiddlePressed = true;
-            mouseLeftPressed = false;
-            mouseRightPressed = false;
-        }
-        else if (action == GLFW_RELEASE)
-        {
-            mouseMiddlePressed = false;
-        }
-    }
-}
 
-void motionFunc(GLFWwindow *window, double mouse_x, double mouse_y)
-{
-    (void)window;
-    float rotScale = 1.0f;
-    float transScale = 2.0f;
+        GLint val = 0;
 
-    if (mouseLeftPressed)
-    {
-        trackball(prev_quat, rotScale * (2.0f * prevMouseX - width) / (float)width,
-                  rotScale * (height - 2.0f * prevMouseY) / (float)height,
-                  rotScale * (2.0f * mouse_x - width) / (float)width,
-                  rotScale * (height - 2.0f * mouse_y) / (float)height);
+        FILE *fp = fopen(shaderSourceFilename, "rb");
+        if (!fp)
+        {
+            std::cerr << "failed to load shader: " << shaderSourceFilename << std::endl;
+            return false;
+        }
 
-        add_quats(prev_quat, curr_quat, curr_quat);
-    }
-    else if (mouseMiddlePressed)
-    {
-        eye[0] += -transScale * (mouse_x - prevMouseX) / (float)width;
-        lookat[0] += -transScale * (mouse_x - prevMouseX) / (float)width;
-        eye[1] += transScale * (mouse_y - prevMouseY) / (float)height;
-        lookat[1] += transScale * (mouse_y - prevMouseY) / (float)height;
-    }
-    else if (mouseRightPressed)
-    {
-        eye[2] += transScale * (mouse_y - prevMouseY) / (float)height;
-        lookat[2] += transScale * (mouse_y - prevMouseY) / (float)height;
+        fseek(fp, 0, SEEK_END);
+        size_t len = ftell(fp);
+        rewind(fp);
+        std::vector<GLchar> srcbuf;
+        srcbuf.resize(len + 1);
+        len = fread(&srcbuf.at(0), 1, len, fp);
+        srcbuf[len] = 0;
+        fclose(fp);
+
+        const GLchar *srcs[1];
+        srcs[0] = &srcbuf.at(0);
+
+        GLuint shader = glCreateShader(shaderType);
+        glShaderSource(shader, 1, srcs, NULL);
+        glCompileShader(shader);
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &val);
+        if (val != GL_TRUE)
+        {
+            char log[4096];
+            GLsizei msglen;
+            glGetShaderInfoLog(shader, 4096, &msglen, log);
+            std::cerr << log << std::endl;
+
+            std::cerr << "ERR: Failed to load or compile shader [ " << shaderSourceFilename << " ]" << std::endl;
+
+            return false;
+        }
+
+        std::cout << "Load shader [ " << shaderSourceFilename << " ] OK" << std::endl;
+
+        _shaders.insert(std::make_pair(shaderType, shader));
+
+        return true;
     }
 
-    // Update mouse point
-    prevMouseX = mouse_x;
-    prevMouseY = mouse_y;
-}
+    bool LinkShader()
+    {
+        GLint val = 0;
+
+        if (_prog != 0) glDeleteProgram(_prog);
+
+        _prog = glCreateProgram();
+
+        for (auto pair : _shaders)
+            glAttachShader(_prog, pair.second);
+
+        glLinkProgram(_prog);
+
+        glGetProgramiv(_prog, GL_LINK_STATUS, &val);
+        assert(val == GL_TRUE && "failed to link shader");
+
+        std::cout << "Link shader OK" << std::endl;
+
+        return true;
+    }
+
+    bool Setup()
+    {
+        if (false == LoadShader(GL_VERTEX_SHADER, "shader.vert")) return false;
+        CheckErrors("load vert shader");
+
+        if (false == LoadShader(GL_FRAGMENT_SHADER, "shader.frag")) return false;
+        CheckErrors("load frag shader");
+
+        if (false == LinkShader()) return false;
+        CheckErrors("link");
+
+        // At least `in_vertex` should be used in the shader.
+        GLint vtxLoc = glGetAttribLocation(_prog, "in_vertex");
+        if (vtxLoc < 0)
+        {
+            std::cerr << "vertex loc not found." << std::endl;
+            return false;
+        }
+
+        return true;
+    }
+
+    void Cleanup()
+    {
+        glDeleteProgram(_prog);
+        _prog = 0;
+        CheckErrors("CleanupShader");
+    }
+};
 
 typedef struct { GLuint vb; } GLBufferState;
 
@@ -299,14 +193,14 @@ public:
         return ret;
     }
 
-    void Setup(GLuint progId)
+    void Setup(GLProgram& prog)
     {
-        glUseProgram(progId);
+        glUseProgram(prog.ProgId());
         CheckErrors("useProgram");
 
-        this->_programState.attribs["POSITION"] = glGetAttribLocation(progId, "in_vertex");
-        this->_programState.attribs["NORMAL"] = glGetAttribLocation(progId, "in_normal");
-        this->_programState.attribs["TEXCOORD_0"] = glGetAttribLocation(progId, "in_texcoord");
+        this->_programState.attribs["POSITION"] = glGetAttribLocation(prog.ProgId(), "in_vertex");
+        this->_programState.attribs["NORMAL"] = glGetAttribLocation(prog.ProgId(), "in_normal");
+        this->_programState.attribs["TEXCOORD_0"] = glGetAttribLocation(prog.ProgId(), "in_texcoord");
 
         for (size_t i = 0; i < this->_model.bufferViews.size(); i++)
         {
@@ -442,25 +336,166 @@ public:
     {
 
     }
-
 };
 
-static void Init()
+class GLView
 {
-    trackball(curr_quat, 0, 0, 0, 0);
+    double prevMouseX, prevMouseY;
+    bool mouseLeftPressed;
+    bool mouseMiddlePressed;
+    bool mouseRightPressed;
+    float curr_quat[4];
+    float prev_quat[4];
+    float eye[3], lookat[3], up[3];
+    int width;
+    int height;
+    float scale;
 
-    eye[0] = 0.0f;
-    eye[1] = 0.0f;
-    eye[2] = CAM_Z;
+    static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
+    {
+        auto thiz = reinterpret_cast<GLView*>(glfwGetWindowUserPointer(window));
+        double x, y;
+        glfwGetCursorPos(window, &x, &y);
 
-    lookat[0] = 0.0f;
-    lookat[1] = 0.0f;
-    lookat[2] = 0.0f;
+        bool shiftPressed = (mods & GLFW_MOD_SHIFT);
+        bool ctrlPressed = (mods & GLFW_MOD_CONTROL);
 
-    up[0] = 0.0f;
-    up[1] = 1.0f;
-    up[2] = 0.0f;
-}
+        if ((button == GLFW_MOUSE_BUTTON_LEFT) && (!shiftPressed) && (!ctrlPressed))
+        {
+            thiz->mouseLeftPressed = true;
+            thiz->mouseMiddlePressed = false;
+            thiz->mouseRightPressed = false;
+            if (action == GLFW_PRESS)
+            {
+                int id = -1;
+                if (id < 0) trackball(thiz->prev_quat, 0.0, 0.0, 0.0, 0.0);
+            }
+            else if (action == GLFW_RELEASE)
+            {
+                thiz->mouseLeftPressed = false;
+            }
+        }
+        if ((button == GLFW_MOUSE_BUTTON_RIGHT) || ((button == GLFW_MOUSE_BUTTON_LEFT) && ctrlPressed))
+        {
+            if (action == GLFW_PRESS)
+            {
+                thiz->mouseRightPressed = true;
+                thiz->mouseLeftPressed = false;
+                thiz->mouseMiddlePressed = false;
+            }
+            else if (action == GLFW_RELEASE)
+            {
+                thiz->mouseRightPressed = false;
+            }
+        }
+        if ((button == GLFW_MOUSE_BUTTON_MIDDLE) || ((button == GLFW_MOUSE_BUTTON_LEFT) && shiftPressed))
+        {
+            if (action == GLFW_PRESS)
+            {
+                thiz->mouseMiddlePressed = true;
+                thiz->mouseLeftPressed = false;
+                thiz->mouseRightPressed = false;
+            }
+            else if (action == GLFW_RELEASE)
+            {
+                thiz->mouseMiddlePressed = false;
+            }
+        }
+    }
+
+    static void cursorPosCallback(GLFWwindow *window, double mouse_x, double mouse_y)
+    {
+        auto thiz = reinterpret_cast<GLView*>(glfwGetWindowUserPointer(window));
+        float rotScale = 1.0f;
+        float transScale = 2.0f;
+
+        if (thiz->mouseLeftPressed)
+        {
+            trackball(thiz->prev_quat, rotScale * (2.0f * thiz->prevMouseX - thiz->width) / (float)thiz->width,
+                      rotScale * (thiz->height - 2.0f * thiz->prevMouseY) / (float)thiz->height,
+                      rotScale * (2.0f * mouse_x - thiz->width) / (float)thiz->width,
+                      rotScale * (thiz->height - 2.0f * mouse_y) / (float)thiz->height);
+
+            add_quats(thiz->prev_quat, thiz->curr_quat, thiz->curr_quat);
+        }
+        else if (thiz->mouseMiddlePressed)
+        {
+            thiz->eye[0] += -transScale * (mouse_x - thiz->prevMouseX) / (float)thiz->width;
+            thiz->lookat[0] += -transScale * (mouse_x - thiz->prevMouseX) / (float)thiz->width;
+            thiz->eye[1] += transScale * (mouse_y - thiz->prevMouseY) / (float)thiz->height;
+            thiz->lookat[1] += transScale * (mouse_y - thiz->prevMouseY) / (float)thiz->height;
+        }
+        else if (thiz->mouseRightPressed)
+        {
+            thiz->eye[2] += transScale * (mouse_y - thiz->prevMouseY) / (float)thiz->height;
+            thiz->lookat[2] += transScale * (mouse_y - thiz->prevMouseY) / (float)thiz->height;
+        }
+
+        // Update mouse point
+        thiz->prevMouseX = mouse_x;
+        thiz->prevMouseY = mouse_y;
+    }
+
+    static void setWindowSizeCallback(GLFWwindow *window, int w, int h)
+    {
+        auto thiz = reinterpret_cast<GLView*>(glfwGetWindowUserPointer(window));
+
+        glfwGetFramebufferSize(window, &thiz->width, &thiz->height);
+        glViewport(0, 0, thiz->width, thiz->height);
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
+        gluPerspective(45.0, (float)thiz->width / (float)thiz->height, 0.1f, 1000.0f);
+    }
+public:
+    GLView() { }
+
+    virtual ~GLView() { }
+
+    void SetScale(float scale) { this->scale = scale; }
+
+    void Setup(GLFWwindow *window)
+    {
+        glfwGetFramebufferSize(window, &width, &height);
+
+        trackball(curr_quat, 0, 0, 0, 0);
+        mouseLeftPressed = false;
+        mouseMiddlePressed = false;
+        mouseRightPressed = false;
+
+        eye[0] = 0.0f;
+        eye[1] = 0.0f;
+        eye[2] = CAM_Z;
+
+        lookat[0] = 0.0f;
+        lookat[1] = 0.0f;
+        lookat[2] = 0.0f;
+
+        up[0] = 0.0f;
+        up[1] = 1.0f;
+        up[2] = 0.0f;
+
+        glfwSetWindowUserPointer(window, this);
+
+        setWindowSizeCallback(window, this->width, this->height);
+
+        glfwSetWindowSizeCallback(window, GLView::setWindowSizeCallback);
+        glfwSetMouseButtonCallback(window, GLView::mouseButtonCallback);
+        glfwSetCursorPosCallback(window, GLView::cursorPosCallback);
+    }
+
+    void Build()
+    {
+        glMatrixMode(GL_MODELVIEW);
+        glLoadIdentity();
+        gluLookAt(eye[0], eye[1], eye[2], lookat[0], lookat[1], lookat[2], up[0], up[1], up[2]);
+
+        GLfloat mat[4][4];
+        build_rotmatrix(mat, curr_quat);
+        glMultMatrixf(&mat[0][0]);
+
+        glScalef(scale, scale, scale);
+    }
+};
 
 int main(int argc, char *argv[])
 {
@@ -469,8 +504,6 @@ int main(int argc, char *argv[])
         std::cout << "glview input.gltf <scale>\n" << std::endl;
         return 0;
     }
-
-    float scale = argc > 2 ? std::stof(argv[2]) : 1.0f;
 
     if (!glfwInit())
     {
@@ -481,7 +514,7 @@ int main(int argc, char *argv[])
     std::stringstream title;
     title << "Simple glTF viewer: " << argv[1];
 
-    auto window = glfwCreateWindow(width, height, title.str().c_str(), NULL, NULL);
+    auto window = glfwCreateWindow(1024, 768, title.str().c_str(), NULL, NULL);
     if (window == NULL)
     {
         std::cerr << "Failed to open GLFW window. " << std::endl;
@@ -489,32 +522,45 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    glfwGetWindowSize(window, &width, &height);
-
     glfwMakeContextCurrent(window);
 
     if (!glExtLoadAll((PFNGLGETPROC*)glfwGetProcAddress))
     {
         std::cerr << "Failed to initialize GLEXTL." << std::endl;
+        glfwTerminate();
         return -1;
     }
 
     // Callback
-    glfwSetWindowSizeCallback(window, reshapeFunc);
-    glfwSetKeyCallback(window, keyboardFunc);
-    glfwSetMouseButtonCallback(window, clickFunc);
-    glfwSetCursorPosCallback(window, motionFunc);
+    glfwSetKeyCallback(window, [] (GLFWwindow *window, int key, int scancode, int action, int mods)
+    {
+        (void)scancode;
+        (void)mods;
+        if ((action == GLFW_PRESS || action == GLFW_REPEAT) && (key == GLFW_KEY_Q || key == GLFW_KEY_ESCAPE))
+        {
+            glfwSetWindowShouldClose(window, GL_TRUE);
+        }
+    });
 
-    Init();
+    GLView view;
+    view.Setup(window);
+    view.SetScale(argc > 2 ? std::stof(argv[2]) : 1.0f);
 
-    reshapeFunc(window, width, height);
-
-    GLuint progId = SetupShader();
-    if (progId == 0) return -1;
+    GLProgram program;
+    if (!program.Setup())
+    {
+        glfwTerminate();
+        return -1;
+    }
 
     GLScene scene;
-    if (!scene.Load(argv[1])) return -1;
-    scene.Setup(progId);
+    if (!scene.Load(argv[1]))
+    {
+        glfwTerminate();
+        return -1;
+    }
+
+    scene.Setup(program);
 
     while (glfwWindowShouldClose(window) == GL_FALSE)
     {
@@ -524,24 +570,9 @@ int main(int argc, char *argv[])
 
         glEnable(GL_DEPTH_TEST);
 
-        GLfloat mat[4][4];
-        build_rotmatrix(mat, curr_quat);
-
-        // camera(define it in projection matrix)
-        glMatrixMode(GL_PROJECTION);
-        glPushMatrix();
-        gluLookAt(eye[0], eye[1], eye[2], lookat[0], lookat[1], lookat[2], up[0], up[1], up[2]);
-
-        glMatrixMode(GL_MODELVIEW);
-        glLoadIdentity();
-        glMultMatrixf(&mat[0][0]);
-
-        glScalef(scale, scale, scale);
+        view.Build();
 
         scene.Draw();
-
-        glMatrixMode(GL_PROJECTION);
-        glPopMatrix();
 
         glFlush();
 
@@ -550,7 +581,9 @@ int main(int argc, char *argv[])
 
     scene.Cleanup();
 
-    CleanupShader(progId);
+    program.Cleanup();
 
     glfwTerminate();
+
+    return 0;
 }
