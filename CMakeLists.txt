@@ -22,6 +22,9 @@ add_executable(gltf-viewer
     tiny_gltf.h
     trackball.cc
     trackball.h
+    gltfscene.h
+    glfwcamera.h
+    glprogram.h
     )
 
 target_include_directories(gltf-viewer
