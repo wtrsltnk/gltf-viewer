@@ -33,7 +33,7 @@ class GLScene
     typedef struct { GLuint vb; } GLBufferState;
 
     typedef struct {
-        std::vector<GLuint> diffuseTex;  // for each primitive in mesh
+        std::map<int, GLuint> diffuseTex;  // for each primitive in mesh
     } GLMeshState;
 
     tinygltf::Model _model;
@@ -114,6 +114,38 @@ void GLScene::Setup(GLuint prog)
 
         this->_buffers[i] = state;
     }
+
+    // Texture
+    {
+        for (auto mesh : this->_model.meshes) {
+            for (auto primitive : mesh.primitives) {
+                if (primitive.material < 0) {
+                    continue;
+                }
+                auto mat = this->_model.materials[primitive.material];
+                auto baseColorTexture = mat.values["baseColorTexture"];
+                auto imageIndex = baseColorTexture.json_double_value["index"];
+                auto image = this->_model.images[imageIndex];
+
+                GLuint texId;
+                glGenTextures(1, &texId);
+                _meshStates[mesh.name].diffuseTex[primitive.material] = texId;
+                glBindTexture(GL_TEXTURE_2D, texId);
+                glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+                // Ignore Texture.fomat.
+                GLenum format = GL_RGBA;
+                if (image.component == 3) format = GL_RGB;
+                glTexImage2D(GL_TEXTURE_2D, 0, format, image.width,
+                             image.height, 0, format, GL_UNSIGNED_BYTE,
+                             &image.image.at(0));
+
+                glBindTexture(GL_TEXTURE_2D, 0);
+            }
+        }
+    }
 }
 
 void GLScene::DrawMesh(int index)
@@ -122,6 +154,11 @@ void GLScene::DrawMesh(int index)
     for (auto primitive : mesh.primitives)
     {
         if (primitive.indices < 0) return;
+
+        if (primitive.material >= 0)
+        {
+            glBindTexture(GL_TEXTURE_2D, this->_meshStates[mesh.name].diffuseTex[primitive.material]);
+        }
 
         for (auto it : primitive.attributes)
         {
