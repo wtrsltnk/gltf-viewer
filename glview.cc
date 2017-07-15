@@ -57,10 +57,6 @@ int main(int argc, char *argv[])
         }
     });
 
-    GLFWCamera camera;
-    camera.Setup(window);
-    camera.SetScale(argc > 2 ? std::stof(argv[2]) : 1.0f);
-
     GLProgram program;
     std::map<GLenum, const char*> shaders = {
         { GL_VERTEX_SHADER, "shader.vert" },
@@ -80,6 +76,10 @@ int main(int argc, char *argv[])
     }
 
     scene.Setup(program.ProgId());
+
+    GLFWCamera camera;
+    camera.Setup(window);
+    camera.SetScale(argc > 2 ? std::stof(argv[2]) : 1.0f);
 
     while (glfwWindowShouldClose(window) == GL_FALSE)
     {
