@@ -16,8 +16,8 @@ add_executable(gltf-viewer
     glview.cc
     impl.cc
     picojson.h
-    shader.frag
-    shader.vert
+    assets/shader.frag
+    assets/shader.vert
     stb_image.h
     tiny_gltf.h
     trackball.cc
